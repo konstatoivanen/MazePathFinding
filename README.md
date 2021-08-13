@@ -1,6 +1,8 @@
 # Maze Path Finding
 A small project that generates a 64 x 32 maze using depth-first search algorithm and solves paths within it using A*.
 
+![Preview](T_Preview.gif?raw=true "Preview")
+
 ## Controls
 - Hold the left mouse button to move path starting point.
 - Hold the right mouse button to move path ending point.
