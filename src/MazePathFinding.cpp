@@ -286,8 +286,6 @@ static bool GeneratePath(std::vector<uint32_t>& openset, PNode* nodes, uint32_t 
     openset.clear();
     openset.push_back(starti);
 
-    auto iterations = 0u;
-
     while (openset.size() > 0)
     {
         QuickSortNodes(nodes, openset.data(), 0, openset.size() - 1);
@@ -299,8 +297,6 @@ static bool GeneratePath(std::vector<uint32_t>& openset, PNode* nodes, uint32_t 
         {
             break;
         }
-
-        ++iterations;
 
         nodes[current].flags |= CELL_VISITED;
 
