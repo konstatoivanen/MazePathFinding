@@ -24,6 +24,7 @@ const char* shader_fragment =
 "																				            \n"
 "	uniform sampler2D pk_Maze;												                \n"
 "	uniform sampler2D pk_Path;												                \n"
+"	uniform float pk_Time;												                    \n"
 "																				            \n"
 "	in vec2 vs_TEXCOORD0;														            \n"
 "	out vec4 SV_Target0;														            \n"
@@ -41,9 +42,12 @@ const char* shader_fragment =
 "       border *= border;                                                                   \n"
 "       border *= 0.75f;                                                                    \n"
 "                                                                                           \n"
-"       float path = step(0.5f, texture(pk_Path, vs_TEXCOORD0).r);                          \n"
+"       float path = texture(pk_Path, vs_TEXCOORD0).r * 8192;                               \n"
+"       float pclip = step(0.05f, path);                                                    \n"
+"       path += pk_Time * 2.0f;                                                             \n"
+"       path = (0.5f + 0.5f * step(0.25f, path - floor(path))) * pclip;                     \n"
 "                                                                                           \n"
-"       SV_Target0 = vec4(mix(border.xxx, vec3(1,0,0), path), 1.0f);                        \n"
+"       SV_Target0 = vec4(mix(border.xxx, vec3(0,0.7,1), path), 1.0f);                      \n"
 "   }																			            \n";
 
 const static char CELL_VISITED = 1 << 5;
@@ -260,12 +264,12 @@ static void QuickSortNodes(PNode* nodes, uint32_t* open, int low, int high)
 	}
 }
 
-static bool GeneratePath(std::vector<uint32_t>& openset, PNode* nodes, uint32_t w, uint32_t h, uint32_t pw, uint32_t starti, uint32_t endi, char* outTexture)
+static bool GeneratePath(std::vector<uint32_t>& openset, PNode* nodes, uint32_t w, uint32_t h, uint32_t pw, uint32_t starti, uint32_t endi, uint16_t* outTexture)
 {
     auto tw = w * pw;
     auto th = h * pw;
 
-    memset(outTexture, 0, tw * th * sizeof(char));
+    memset(outTexture, 0, tw * th * sizeof(uint16_t));
 
     uint32_t count = w * h;
 
@@ -344,6 +348,7 @@ static bool GeneratePath(std::vector<uint32_t>& openset, PNode* nodes, uint32_t 
 
     auto prevx = (trace % w) * pw + 2;
     auto prevy = (trace / w) * pw + 2;
+    auto pxidx = 4u;
 
     while (trace != 0xFFFFFFFF)
     {
@@ -355,12 +360,12 @@ static bool GeneratePath(std::vector<uint32_t>& openset, PNode* nodes, uint32_t 
 
         for (int px = prevx; px != x; px += dx)
         {
-            outTexture[px + y * tw] = 255;
+            outTexture[px + y * tw] = pxidx++;
         }
 
         for (auto py = prevy; py != y; py += dy)
         {
-            outTexture[x + py * tw] = 255;
+            outTexture[x + py * tw] = pxidx++;
         }
 
         prevx = x;
@@ -382,7 +387,6 @@ int main(int argc, char* argv[])
 
     if (!glfwInit())
 	{
-
 		printf("Failed to initialize glfw!");
 		return 0;
 	}
@@ -423,14 +427,16 @@ int main(int argc, char* argv[])
 
     auto nodes = reinterpret_cast<PNode*>(calloc(texWidth * texHeight, sizeof(PNode)));
     auto mazeTexture = reinterpret_cast<char*>(calloc(texWidth * texHeight, sizeof(char)));
-    auto pathTexture = reinterpret_cast<char*>(calloc(texWidth * texHeight, sizeof(char)));
+    auto pathTexture = reinterpret_cast<uint16_t*>(calloc(texWidth * texHeight, sizeof(uint16_t)));
 
     GenerateMaze(graphWidth, graphHeight, graphPadding, mazeTexture, nodes);
 
 	GLuint textureIds[2];
 	glCreateTextures(GL_TEXTURE_2D, 2, textureIds);
 	glTextureStorage2D(textureIds[0], 1, GL_R8, texWidth, texHeight);
-	glTextureStorage2D(textureIds[1], 1, GL_R8, texWidth, texHeight);
+	glTextureStorage2D(textureIds[1], 1, GL_R16, texWidth, texHeight);
+    glTextureParameteri(textureIds[1], GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTextureParameteri(textureIds[1], GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
     glTextureSubImage2D(textureIds[0], 0, 0, 0, texWidth, texHeight, GL_RED, GL_UNSIGNED_BYTE, mazeTexture);
     free(mazeTexture);
@@ -438,6 +444,8 @@ int main(int argc, char* argv[])
     auto shaderDisplay = CompileShader({ {GL_VERTEX_SHADER, shader_vertex}, {GL_FRAGMENT_SHADER, shader_fragment} });
 
 	glUseProgram(shaderDisplay);
+
+    auto timeLocation = glGetUniformLocation(shaderDisplay, "pk_Time");
 	glUniform1i(glGetUniformLocation(shaderDisplay, "pk_Maze"), 0);
 	glUniform1i(glGetUniformLocation(shaderDisplay, "pk_Path"), 1);
 	glBindTextureUnit(0, textureIds[0]);
@@ -488,9 +496,10 @@ int main(int argc, char* argv[])
 
         if (GeneratePath(openset, nodes, graphWidth, graphHeight, graphPadding, cellIndexStart, cellIndexEnd, pathTexture))
         {
-            glTextureSubImage2D(textureIds[1], 0, 0, 0, texWidth, texHeight, GL_RED, GL_UNSIGNED_BYTE, pathTexture);
+            glTextureSubImage2D(textureIds[1], 0, 0, 0, texWidth, texHeight, GL_RED, GL_UNSIGNED_SHORT, pathTexture);
         }
 
+        glUniform1f(timeLocation, glfwGetTime());
         glDrawArrays(GL_TRIANGLES, 0, 3);
         glfwSwapBuffers(window);
     }
